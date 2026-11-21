@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hải chiến Battleship Online</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#dfeaf5;--card:#fff;--tx:#10243a;--sea:#bcd7ee;--ln:#7fa6c9;--ship:#5b6b7b;--hit:#d93025;--miss:#fff;--acc:#e8671b;--mut:#5d7186;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1624;--card:#12263b;--tx:#e6eef7;--sea:#1b3a58;--ln:#2f5a82;--ship:#8fa3b8;--miss:#d5e2ef;--mut:#92a8bf;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b1624;--card:#12263b;--tx:#e6eef7;--sea:#1b3a58;--ln:#2f5a82;--ship:#8fa3b8;--miss:#d5e2ef;--mut:#92a8bf;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:0 0 12px}
+.card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 4px #0002}
+.bar{background:var(--acc);color:#fff;font-weight:700;text-align:center;padding:8px;border-radius:8px;margin-bottom:12px}
+.bar.me{background:#1b6bb5}
+button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;margin:4px 4px 4px 0}
+button.alt{background:#1b6bb5}
+input{font:inherit;padding:10px;border-radius:8px;border:1px solid var(--ln);background:var(--bg);color:var(--tx);width:110px;text-transform:uppercase}
+.boards{display:flex;flex-wrap:wrap;gap:16px}
+.bw{flex:1 1 300px;min-width:0}
+.bw h2{font-size:15px;margin:0 0 6px;color:var(--mut)}
+.g{display:grid;grid-template-columns:18px repeat(10,1fr);gap:1px;background:var(--ln);border:2px solid var(--ln);border-radius:6px;overflow:hidden}
+.g>div{aspect-ratio:1;background:var(--sea);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--mut)}
+.g>.h{background:var(--card)}
+.g .s{background:var(--ship)}
+.g .m::after,.g .x::after{content:"";width:62%;height:62%;border-radius:50%}
+.g .m::after{background:var(--miss);box-shadow:inset 0 0 0 2px #9bb}
+.g .x::after{background:var(--hit);box-shadow:inset 0 0 0 2px #7a1510}
+.g .p::after{content:"";width:40%;height:40%;border-radius:50%;background:var(--acc);opacity:.6}
+.en .c{cursor:crosshair}
+.en.on .c:hover{outline:2px solid var(--acc);outline-offset:-2px}
+.code{font:700 34px ui-monospace,monospace;letter-spacing:6px}
+.log{color:var(--mut);margin:6px 0}
+.g{overflow:visible}.g>div{position:relative}.g .sl{background:var(--acc)}.g .s{cursor:grab}
+.g .fxh,.g .fxm{z-index:3}
+.g .fxh::before,.g .fxm::before{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none}
+.g .fxh::before{background:radial-gradient(circle,#fff 0,#ffd54a 30%,#ff6a00 60%,transparent 72%);animation:boom .9s ease-out forwards}
+.g .fxm::before{border:3px solid #fff;animation:rip .8s ease-out forwards}
+.g .fxh::after{animation:pop .6s}
+@keyframes boom{0%{transform:scale(.2);opacity:1}100%{transform:scale(3.4);opacity:0}}
+@keyframes rip{0%{transform:scale(.3);opacity:1}100%{transform:scale(2.8);opacity:0}}
+@keyframes pop{0%{transform:scale(2.2)}100%{transform:scale(1)}}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.shake{animation:shake .4s}
+.g .p::after{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.2}}
+</style></head>
+<body><div id="app"><div class="card">Đang kết nối…</div></div>
+<script>
+const SH=[["Hàng không mẫu hạm",5],["Thiết giáp hạm",4],["Tuần dương",3],["Tàu ngầm",3],["Khu trục",2]];
+const rnd=k=>Math.floor(Math.random()*k);
+let db,me,code,slot,g,fleet=[],unsub,busy=false,msg="",sel=-1,seen=-1;
+const $=document.getElementById("app");
+
+function randFleet(){const occ=new Set(),f=[];
+ for(const [n,l] of SH){for(;;){const h=Math.random()<.5,r=rnd(h?10:11-l),c=rnd(h?11-l:10);
+  const sh={n,l,r,c,h};cells(sh);
+  if(sh.cells.every(k=>!occ.has(k))){sh.cells.forEach(k=>occ.add(k));f.push(sh);break}}}
+ return f}
+function cells(s){s.cells=[...Array(s.l)].map((_,i)=>s.h?s.r*10+s.c+i:(s.r+i)*10+s.c);return s.cells}
+function fits(s,ig){if(s.r<0||s.c<0||(s.h?s.c+s.l>10||s.r>9:s.r+s.l>10||s.c>9))return false;const o=new Set(fleet.filter(x=>x!==ig).flatMap(x=>x.cells));return cells(s).every(k=>!o.has(k))}
+
+async function init(){
+ try{const u=await claude.use("user");me=u?await u.id():null;db=await claude.use("db")}catch(e){}
+ if(!db||!me){$.innerHTML='<div class="card">Cần đăng nhập claude.ai và cấp quyền dữ liệu để chơi online.</div>';return}
+ const h=location.hash.slice(1);
+ if(/^[A-Z0-9]{4}$/.test(h)) await join(h);
+ else render()}
+
+const gref=c=>db.doc("games/"+c), fref=c=>db.doc("data/users/"+me+"/fleets/"+c);
+
+async function create(){
+ const c=[...Array(4)].map(()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(32)]).join("");
+ try{await gref(c).set({p1:me,p2:null,r1:false,r2:false,turn:"p1",shots:[],win:null});await join(c)}catch(e){msg="Không tạo được phòng: "+(e.message||e);render()}}
+
+async function join(c){
+ c=c.toUpperCase().trim();
+ try{const s=await gref(c).get();
+  if(!s.exists){msg="Không tìm thấy phòng "+c;return render()}
+  const d=s.data();
+  if(d.p1===me)slot="p1";else if(d.p2===me)slot="p2";
+  else if(!d.p2){await gref(c).update({p2:me});slot="p2"}
+  else{msg="Phòng đã đủ 2 người.";return render()}
+  code=c;location.hash=c;msg="";
+  try{const f=await fref(c).get();fleet=f.exists?f.data().ships:[]}catch(e){fleet=[]}
+  if(!fleet.length)fleet=randFleet();
+  unsub&&unsub();
+  unsub=gref(c).onSnapshot(sn=>{g=sn.data();resolve();render()},e=>{msg="Lỗi kết nối: "+e.message;render()});
+ }catch(e){msg="Lỗi: "+(e.message||e);render()}}
+
+async function resolve(){ // phía phòng thủ tự xác định trúng/trượt
+ if(!g||busy||g.win)return;
+ const s=g.shots,l=s[s.length-1];
+ if(!l||l.res!=null||l.by===slot||!fleet.length)return;
+ busy=true;
+ try{const k=l.r*10+l.c,ship=fleet.find(x=>x.cells.includes(k));
+  const hits=new Set(s.filter(x=>x!==l&&x.by!==slot&&x.res==="hit").map(x=>x.r*10+x.c));
+  if(ship)hits.add(k);
+  const sunk=ship&&ship.cells.every(c=>hits.has(c)),all=fleet.every(x=>x.cells.every(c=>hits.has(c)));
+  const ns=s.slice(0,-1).concat({...l,res:ship?"hit":"miss",sunk:sunk?ship.n:null});
+  await gref(code).update({shots:ns,turn:slot,win:all?l.by:null});
+ }catch(e){msg="Lỗi: "+e.message}
+ busy=false}
+
+async function ready(){
+ try{await fref(code).set({ships:fleet});await gref(code).update({["r"+slot[1]]:true})}catch(e){msg="Lỗi: "+e.message;render()}}
+
+async function fire(r,c){
+ const opp=slot==="p1"?"p2":"p1",s=g.shots;
+ if(g.win||g.turn!==slot||(s.length&&s[s.length-1].res==null))return;
+ if(s.some(x=>x.by===slot&&x.r===r&&x.c===c))return;
+ try{await gref(code).update({shots:s.concat({by:slot,r,c,res:null,sunk:null}),turn:opp})}catch(e){msg="Lỗi: "+e.message;render()}}
+
+function grid(kind){
+ let h='<div class="h"></div>'+[...Array(10)].map((_,i)=>`<div class="h">${i+1}</div>`).join("");
+ const mine=kind==="me",my=new Map();
+ if(g)for(const x of g.shots)if(x.by===(mine?(slot==="p1"?"p2":"p1"):slot))my.set(x.r*10+x.c,x.res);
+ const own=new Set(fleet.flatMap(x=>x.cells));
+ const fx=new Set();if(g&&seen>=0)g.shots.forEach((x,i)=>{if(x.res&&i>=seen&&x.by===(mine?(slot==="p1"?"p2":"p1"):slot))fx.add(x.r*10+x.c)});
+ for(let r=0;r<10;r++){h+=`<div class="h">${"ABCDEFGHIJ"[r]}</div>`;
+  for(let c=0;c<10;c++){const k=r*10+c,v=my.get(k);let cl="c";
+   if(mine&&own.has(k))cl+=" s";
+   if(my.has(k))cl+=v==="hit"?" x":v==="miss"?" m":" p";
+   const si=mine?fleet.findIndex(x=>x.cells.includes(k)):-1;
+   if(si>=0&&si===sel&&!g["r"+slot[1]])cl+=" sl";
+   if(fx.has(k))cl+=v==="hit"?" fxh":" fxm";
+   h+=`<div class="${cl}" data-r="${r}" data-c="${c}"${si>=0?` data-s="${si}"`:""}></div>`}}
+ return `<div class="g">${h}</div>`}
+
+function render(){
+ if(!db)return;
+ if(!g||!code){$.innerHTML=`<h1>⚓ Hải chiến Battleship</h1><div class="card"><button id="mk">Tạo phòng mới</button><p>hoặc nhập mã phòng:</p><input id="cd" maxlength="4" placeholder="ABCD"> <button class="alt" id="jn">Vào phòng</button>${msg?`<p class="log">${msg}</p>`:""}</div>`;
+  mk.onclick=create;jn.onclick=()=>join(cd.value);return}
+ const share=`<div class="card">Mã phòng: <span class="code">${code}</span><div class="log">Gửi link trang này kèm mã phòng cho bạn bè.</div></div>`;
+ if(!g.p2){$.innerHTML=`<h1>⚓ Hải chiến</h1>${share}<div class="bar">Đang chờ đối thủ…</div>`;return}
+ const mr=g["r"+slot[1]],opp=slot==="p1"?"p2":"p1";
+ if(!mr){$.innerHTML=`<h1>⚓ Triển khai hạm đội</h1>${share}<p class="log">Kéo thả tàu để di chuyển. Chạm vào tàu (hoặc bấm Xoay) để đổi hướng ngang ↔ dọc.</p><div class="boards"><div class="bw" id="pg" style="touch-action:none;user-select:none">${grid("me")}</div></div><button class="alt" id="rt">↻ Xoay tàu đã chọn</button><button id="rs">🔀 Ngẫu nhiên</button><button id="ok">SẴN SÀNG!</button>${msg?`<p class="log">${msg}</p>`:""}`;
+  const pg=document.getElementById("pg"),paint=()=>pg.innerHTML=grid("me");let d=null;
+  const rot=i=>{const s=fleet[i];if(!s)return;const t={...s,h:!s.h};t.c=Math.min(t.c,t.h?10-t.l:9);t.r=Math.min(t.r,t.h?9:10-t.l);if(fits(t,s)){Object.assign(s,t);cells(s)}};
+  pg.onpointerdown=e=>{const t=e.target.closest("[data-s]");if(!t)return;const i=+t.dataset.s,s=fleet[i];sel=i;d={i,dr:+t.dataset.r-s.r,dc:+t.dataset.c-s.c,mv:false};pg.setPointerCapture(e.pointerId);e.preventDefault();paint()};
+  pg.onpointermove=e=>{if(!d)return;const t=document.elementFromPoint(e.clientX,e.clientY);if(!t||t.dataset.r==null)return;const s=fleet[d.i],c={...s,r:+t.dataset.r-d.dr,c:+t.dataset.c-d.dc};if((c.r!==s.r||c.c!==s.c)&&fits(c,s)){Object.assign(s,c);cells(s);d.mv=true;paint()}};
+  pg.onpointerup=()=>{if(d&&!d.mv)rot(d.i);d=null;paint()};
+  rt.onclick=()=>{rot(sel);paint()};rs.onclick=()=>{fleet=randFleet();sel=-1;paint()};ok.onclick=ready;return}
+ if(!(g.r1&&g.r2)){$.innerHTML=`<h1>⚓ Hải chiến</h1>${share}<div class="bar">Đã sẵn sàng – chờ đối thủ…</div>`;return}
+ const s=g.shots,l=s[s.length-1],mine=g.turn===slot&&!g.win&&!(l&&l.res==null);
+ if(seen<0)seen=s.filter(x=>x.res).length;const nh=s.some((x,i)=>x.res==="hit"&&i>=seen);
+ let st=g.win?(g.win===slot?"🏆 BẠN THẮNG!":"💥 Bạn đã thua."):mine?"LƯỢT CỦA BẠN – chọn ô để bắn":"LƯỢT ĐỐI THỦ";
+ let lg="";const d=[...s].reverse().find(x=>x.res);
+ if(d)lg=(d.by===slot?"Bạn bắn ":"Đối thủ bắn ")+"ô "+"ABCDEFGHIJ"[d.r]+(d.c+1)+": "+(d.res==="hit"?"TRÚNG!":"trượt.")+(d.sunk?` Đã đánh chìm ${d.sunk}!`:"");
+ $.innerHTML=`<div class="bar ${mine?"me":""}">${st}</div><div class="log">${lg}</div><div class="boards ${nh?"shake":""}"><div class="bw"><h2>Vùng biển địch (bắn ở đây)</h2><div class="en ${mine?"on":""}">${grid("en")}</div></div><div class="bw"><h2>Hạm đội của bạn</h2>${grid("me")}</div></div><div class="log">Phòng ${code}</div>`;
+ $.querySelectorAll(".en .c").forEach(e=>e.onclick=()=>fire(+e.dataset.r,+e.dataset.c));seen=s.filter(x=>x.res).length}
+
+init();
+</script></body></html>
